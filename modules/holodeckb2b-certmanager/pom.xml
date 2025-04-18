@@ -101,7 +101,7 @@
                 </executions>
                 <configuration>
                     <sources>
-                        <source>src/main/resources/xsd/hb2b-certmanager-cfg.xsd</source>
+                        <source>${project.basedir}/src/main/resources/xsd/hb2b-certmanager-cfg.xsd</source>
                     </sources>
                     <packageName>org.holodeckb2b.security.trust.config</packageName>
                 </configuration>
