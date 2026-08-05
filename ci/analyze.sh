@@ -63,7 +63,7 @@ echo "=========================================================="
 # own. No pom change needed -- UNLESS the pom hard-codes argLine itself,
 # in which case coverage will silently come out empty. Check that first if
 # jacoco.xml turns up with zero coverage.
-$MVN "${JACOCO_GAV}:prepare-agent" test "${JACOCO_GAV}:report" \
+$MVN "${JACOCO_GAV}:prepare-agent" install "${JACOCO_GAV}:report" \
   -Dmaven.test.failure.ignore=true \
   -pl '!modules/holodeckb2b-distribution'
 
@@ -73,7 +73,8 @@ echo "=========================================================="
 $MVN "${CHECKSTYLE_GAV}:checkstyle" \
   -Dcheckstyle.config.location="${CI_DIR}/checkstyle.xml" \
   -Dcheckstyle.version="${CHECKSTYLE_ENGINE_VERSION}" \
-  -Dcheckstyle.failOnViolation=false
+  -Dcheckstyle.failOnViolation=false \
+  -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
 echo " 4/5  PMD + CPD  -> target/pmd.xml, target/cpd.xml"
@@ -82,7 +83,8 @@ $MVN "${PMD_GAV}:pmd" "${PMD_GAV}:cpd" \
   -Drulesets="${CI_DIR}/pmd-ruleset.xml" \
   -Dformat=xml \
   -Dpmd.failOnViolation=false \
-  -Dcpd.minimumTokens=100
+  -Dcpd.minimumTokens=100 \
+  -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
 echo " 5/5  SpotBugs  -> target/spotbugsXml.xml"
@@ -91,7 +93,8 @@ $MVN "${SPOTBUGS_GAV}:spotbugs" \
   -Dspotbugs.effort=Max \
   -Dspotbugs.threshold=Low \
   -Dspotbugs.excludeFilterFile="${CI_DIR}/spotbugs-exclude.xml" \
-  -Dspotbugs.failOnError=false
+  -Dspotbugs.failOnError=false \
+  -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
 echo " Done. Reports written:"
