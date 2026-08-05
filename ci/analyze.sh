@@ -53,7 +53,8 @@ echo "=========================================================="
 # but these two do have user properties and give most of the value.
 $MVN clean compile \
   -Dmaven.compiler.showWarnings=true \
-  -Dmaven.compiler.showDeprecation=true
+  -Dmaven.compiler.showDeprecation=true \
+  -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
 echo " 2/5  Tests + JaCoCo coverage"
@@ -63,7 +64,8 @@ echo "=========================================================="
 # in which case coverage will silently come out empty. Check that first if
 # jacoco.xml turns up with zero coverage.
 $MVN "${JACOCO_GAV}:prepare-agent" test "${JACOCO_GAV}:report" \
-  -Dmaven.test.failure.ignore=true
+  -Dmaven.test.failure.ignore=true \
+  -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
 echo " 3/5  Checkstyle  -> target/checkstyle-result.xml"
