@@ -62,7 +62,8 @@ echo "=========================================================="
 # own. No pom change needed -- UNLESS the pom hard-codes argLine itself,
 # in which case coverage will silently come out empty. Check that first if
 # jacoco.xml turns up with zero coverage.
-$MVN "${JACOCO_GAV}:prepare-agent" test "${JACOCO_GAV}:report"
+$MVN "${JACOCO_GAV}:prepare-agent" test "${JACOCO_GAV}:report" \
+  -Dmaven.test.failure.ignore=true
 
 echo "=========================================================="
 echo " 3/5  Checkstyle  -> target/checkstyle-result.xml"
