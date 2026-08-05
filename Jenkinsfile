@@ -25,6 +25,7 @@ pipeline {
     // Jenkins puts this on the PATH for the whole pipeline, so ci/analyze.sh
     // can just call 'mvn' with no hardcoded path.
     maven 'Maven_3.9.14'
+    jdk 'JAVA_21'
   }
 
   stages {
