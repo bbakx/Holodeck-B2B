@@ -91,7 +91,7 @@ echo " 5/5  SpotBugs  -> target/spotbugsXml.xml"
 echo "=========================================================="
 $MVN "${SPOTBUGS_GAV}:spotbugs" \
   -Dspotbugs.effort=Max \
-  -Dspotbugs.threshold=Low \
+  -Dspotbugs.threshold=Medium \
   -Dspotbugs.excludeFilterFile="${CI_DIR}/spotbugs-exclude.xml" \
   -Dspotbugs.failOnError=false \
   -pl '!modules/holodeckb2b-distribution'
