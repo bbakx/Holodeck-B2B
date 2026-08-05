@@ -63,8 +63,9 @@ echo "=========================================================="
 #
 # -Xlint:all cannot be passed via -D (compilerArgs has no user property),
 # but the two flags below do have user properties and give most of the value.
-$MVN clean install \
+$MVN clean \
   "${JACOCO_GAV}:prepare-agent" \
+  install \
   "${JACOCO_GAV}:report" \
   -Dmaven.compiler.showWarnings=true \
   -Dmaven.compiler.showDeprecation=true \
