@@ -46,29 +46,33 @@ for f in checkstyle.xml pmd-ruleset.xml spotbugs-exclude.xml; do
 done
 
 echo "=========================================================="
-echo " 1/5  Compile"
+echo " 1/4  Compile + tests + JaCoCo coverage"
 echo "=========================================================="
-# SpotBugs analyses bytecode, so compilation has to happen first.
+# One Maven invocation instead of the previous 'clean compile' followed by
+# 'install': the second pass recompiled everything the first pass had just
+# built. Merging saves a full JVM startup and a full compile.
+#
+# 'install' (not 'test') is required: the standalone analyzer goals below run
+# outside the reactor and resolve sibling modules from ~/.m2, so the module
+# jars have to be installed there first.
+#
+# prepare-agent sets the 'argLine' property, which Surefire picks up on its
+# own. No pom change needed -- UNLESS the pom hard-codes argLine itself, in
+# which case coverage silently comes out empty. Check that first if
+# jacoco.xml shows zero coverage.
+#
 # -Xlint:all cannot be passed via -D (compilerArgs has no user property),
-# but these two do have user properties and give most of the value.
-$MVN clean compile \
+# but the two flags below do have user properties and give most of the value.
+$MVN clean install \
+  "${JACOCO_GAV}:prepare-agent" \
+  "${JACOCO_GAV}:report" \
   -Dmaven.compiler.showWarnings=true \
   -Dmaven.compiler.showDeprecation=true \
-  -pl '!modules/holodeckb2b-distribution'
-
-echo "=========================================================="
-echo " 2/5  Tests + JaCoCo coverage"
-echo "=========================================================="
-# prepare-agent sets the 'argLine' property, which Surefire picks up on its
-# own. No pom change needed -- UNLESS the pom hard-codes argLine itself,
-# in which case coverage will silently come out empty. Check that first if
-# jacoco.xml turns up with zero coverage.
-$MVN "${JACOCO_GAV}:prepare-agent" install "${JACOCO_GAV}:report" \
   -Dmaven.test.failure.ignore=true \
   -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
-echo " 3/5  Checkstyle  -> target/checkstyle-result.xml"
+echo " 2/4  Checkstyle  -> target/checkstyle-result.xml"
 echo "=========================================================="
 $MVN "${CHECKSTYLE_GAV}:checkstyle" \
   -Dcheckstyle.config.location="${CI_DIR}/checkstyle.xml" \
@@ -77,7 +81,7 @@ $MVN "${CHECKSTYLE_GAV}:checkstyle" \
   -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
-echo " 4/5  PMD + CPD  -> target/pmd.xml, target/cpd.xml"
+echo " 3/4  PMD + CPD  -> target/pmd.xml, target/cpd.xml"
 echo "=========================================================="
 $MVN "${PMD_GAV}:pmd" "${PMD_GAV}:cpd" \
   -Drulesets="${CI_DIR}/pmd-ruleset.xml" \
@@ -87,7 +91,7 @@ $MVN "${PMD_GAV}:pmd" "${PMD_GAV}:cpd" \
   -pl '!modules/holodeckb2b-distribution'
 
 echo "=========================================================="
-echo " 5/5  SpotBugs  -> target/spotbugsXml.xml"
+echo " 4/4  SpotBugs  -> target/spotbugsXml.xml"
 echo "=========================================================="
 $MVN "${SPOTBUGS_GAV}:spotbugs" \
   -Dspotbugs.effort=Max \
