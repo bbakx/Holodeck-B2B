@@ -56,7 +56,7 @@ pipeline {
             -pl '!:holodeckb2b-distribution' \
             -DnvdApiKey=$NVD_API_KEY \
             -DfailBuildOnCVSS=7 \
-            -Dformats=XML,HTML
+            -Dformats=JSON,HTML
           '''
         }
       }
@@ -115,7 +115,7 @@ pipeline {
           checkStyle(pattern: '**/target/checkstyle-result.xml'),
           pmdParser(pattern: '**/target/pmd.xml'),
           spotBugs(pattern: '**/target/spotbugsXml.xml'),
-          owaspDependencyCheck(pattern: '**/target/dependency-check-report.xml')
+          owaspDependencyCheck(pattern: '**/target/dependency-check-report.json')
         ],
         qualityGates: [
           [threshold: 298, type: 'TOTAL',      criticality: 'UNSTABLE'],
