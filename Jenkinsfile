@@ -95,7 +95,7 @@ pipeline {
           checkStyle(pattern: '**/target/checkstyle-result.xml'),
           pmdParser(pattern: '**/target/pmd.xml'),
           spotBugs(pattern: '**/target/spotbugsXml.xml'),
-          dependencyCheckParser(pattern: '**/target/dependency-check-report.xml')
+          owaspDependencyCheck(pattern: '**/target/dependency-check-report.xml')
         ],
         qualityGates: [
           [threshold: 298, type: 'TOTAL',      criticality: 'UNSTABLE'],
