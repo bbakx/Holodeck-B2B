@@ -69,16 +69,36 @@ pipeline {
         // catchError here too, for the same reason: a HIGH/CRITICAL finding
         // marks this stage FAILED and the build UNSTABLE, but still lets the
         // post block (junit, recordIssues, recordCoverage) run to completion.
+        //
+        // Scans once to JSON (the authoritative, machine-readable report),
+        // then converts that same result to a plain-text table - no second
+        // scan, so it doesn't cost extra time. set +e/-e around the scan is
+        // needed because a plain multi-line sh script only reports the exit
+        // code of its LAST command; without capturing scan_exit explicitly,
+        // a nonzero exit from trivy fs would get silently overwritten by
+        // trivy convert's exit 0, and catchError would never see the failure.
         catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
           sh '''
+            set +e
             trivy fs \
                 --severity HIGH,CRITICAL \
                 --exit-code 1 \
-                --format table \
+                --format json \
+                --output trivy-report.json \
                 --scanners vuln \
                 .
+            scan_exit=$?
+            set -e
+
+            trivy convert \
+                --format table \
+                --output trivy-report.txt \
+                trivy-report.json
+
+            exit $scan_exit
           '''
         }
+        archiveArtifacts artifacts: 'trivy-report.json,trivy-report.txt', allowEmptyArchive: true
       }
     }
   }
