@@ -41,6 +41,21 @@ pipeline {
         sh 'bash ci/analyze.sh'
       }
     }
+    stage('SBOM') {
+      steps {
+        sh '''
+          mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \
+          -pl '!:holodeckb2b-distribution' \
+          -DoutputFormat=json \
+          -DoutputName=bom
+        '''
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'target/bom.json', allowEmptyArchive: true
+        }
+      }
+    }
     stage('Dependency-Check') {
       steps {
         // 'aggregate' rather than 'check' since this is a multi-module reactor -
