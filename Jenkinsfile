@@ -28,6 +28,13 @@ pipeline {
     jdk 'JAVA_21'
   }
 
+  environment {
+    // Free key from https://nvd.nist.gov/developers/request-an-api-key
+    // Without it, dependency-check's NVD feed sync gets rate-limited hard
+    // and the stage below can take 20-30+ min on a cold cache.
+    NVD_API_KEY = credentials('nvd-api-key')
+  }
+
   stages {
 
     stage('Checkout') {
@@ -40,6 +47,35 @@ pipeline {
     stage('Analyze') {
       steps {
         sh 'bash ci/analyze.sh'
+      }
+    }
+
+    stage('Dependency-Check') {
+      steps {
+        // 'aggregate' rather than 'check' since this is a multi-module reactor -
+        // produces one merged report at target/dependency-check-report.xml
+        // instead of one per module.
+        sh '''
+          mvn -B org.owasp:dependency-check-maven:aggregate \
+              -DnvdApiKey=$NVD_API_KEY \
+              -DfailBuildOnCVSS=7 \
+              -Dformats=XML,HTML
+        '''
+      }
+    }
+
+    stage('Trivy Scan') {
+      steps {
+        // fs mode reads the reactor's resolved deps directly, no container needed.
+        // Matches the CVSS-7 threshold used above so the two gates agree.
+        sh '''
+          trivy fs \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --scanners vuln \
+              .
+        '''
       }
     }
   }
@@ -57,7 +93,8 @@ pipeline {
           java(),
           checkStyle(pattern: '**/target/checkstyle-result.xml'),
           pmdParser(pattern: '**/target/pmd.xml'),
-          spotBugs(pattern: '**/target/spotbugsXml.xml')
+          spotBugs(pattern: '**/target/spotbugsXml.xml'),
+          dependencyCheckParser(pattern: '**/target/dependency-check-report.xml')
         ],
         qualityGates: [
           [threshold: 298, type: 'TOTAL',      criticality: 'UNSTABLE'],
@@ -65,6 +102,8 @@ pipeline {
           [threshold: 3,   type: 'NEW_NORMAL', criticality: 'UNSTABLE']
         ]
       )
+
+      archiveArtifacts artifacts: '**/target/dependency-check-report.html', allowEmptyArchive: true
 
       recordCoverage(
         tools: [[parser: 'JACOCO', pattern: '**/target/site/jacoco/jacoco.xml']],
