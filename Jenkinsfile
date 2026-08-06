@@ -57,11 +57,11 @@ pipeline {
         // instead of one per module.
         sh '''
           mvn -B org.owasp:dependency-check-maven:aggregate \
-            -pl '!holodeckb2b-distribution' \
-            -DnvdApiKey=$NVD_API_KEY \
-            -DfailBuildOnCVSS=7 \
-            -Dformats=XML,HTML
-        '''
+          -pl '!:holodeckb2b-distribution' \
+          -DnvdApiKey=$NVD_API_KEY \
+          -DfailBuildOnCVSS=7 \
+          -Dformats=XML,HTML
+      '''
       }
     }
 
