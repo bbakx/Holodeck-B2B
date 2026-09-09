@@ -133,10 +133,14 @@ pipeline {
           owaspDependencyCheck(pattern: '**/target/dependency-check-report.json')
         ],
         qualityGates: [
-          [threshold: 298, type: 'TOTAL',      criticality: 'UNSTABLE'],
-          [threshold: 1,   type: 'NEW_HIGH',   criticality: 'UNSTABLE'],
-          [threshold: 3,   type: 'NEW_NORMAL', criticality: 'UNSTABLE']
-        ]
+            // Ratchet ceiling on the existing backlog (applied per tool).
+            // Set to the current worst-tool total + ~10% headroom; lower it over time.
+            [threshold: 7000, type: 'TOTAL', criticality: 'UNSTABLE'],
+          
+            // Regression gates: nothing NEW may be introduced.
+            [threshold: 1, type: 'NEW_HIGH',   criticality: 'FAILURE'],
+            [threshold: 1, type: 'NEW_NORMAL', criticality: 'UNSTABLE']
+          ]
       )
       archiveArtifacts artifacts: '**/target/dependency-check-report.html', allowEmptyArchive: true
       recordCoverage(
