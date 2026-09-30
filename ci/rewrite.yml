@@ -1,0 +1,22 @@
+# OpenRewrite configuration for applying the Java Coding Guidelines.
+# R24: block indentation +2 (§4.2), continuation indent +4 (§4.5.2), no tabs (§2.3.1).
+# Verified against rewrite 8.92.14 / rewrite-maven-plugin 6.49.0.
+---
+type: specs.openrewrite.org/v1beta/style
+name: org.holodeckb2b.GuidelineStyle
+displayName: Holodeck-B2B Java Coding Guidelines style
+styleConfigs:
+  - org.openrewrite.java.style.TabsAndIndentsStyle:
+      useTabCharacter: false
+      tabSize: 2
+      indentSize: 2
+      continuationIndent: 4
+      indentsRelativeToExpressionStart: false
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: org.holodeckb2b.R24Indentation
+displayName: R24 - Indentation per Java Coding Guidelines
+description: Re-indents blocks to +2 and continuation lines to +4, and replaces tabs with spaces.
+recipeList:
+  - org.openrewrite.java.format.NormalizeTabsOrSpaces
+  - org.openrewrite.java.format.TabsAndIndents
