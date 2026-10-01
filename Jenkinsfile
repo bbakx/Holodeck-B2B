@@ -1,153 +1,120 @@
-// Holodeck-B2B quality gates.
-// Replaces the hand-clicked Freestyle configuration; lives on the 'ci' branch.
-def sourceDirs = [
-  [path: 'modules/holodeckb2b-as4secprovider/src/main/java'],
-  [path: 'modules/holodeckb2b-certmanager/src/main/java'],
-  [path: 'modules/holodeckb2b-core/src/main/java'],
-  [path: 'modules/holodeckb2b-default-mds/src/main/java'],
-  [path: 'modules/holodeckb2b-default-psp/src/main/java'],
-  [path: 'modules/holodeckb2b-ebms3as4/src/main/java'],
-  [path: 'modules/holodeckb2b-interfaces/src/main/java'],
-  [path: 'modules/holodeckb2b-ui/src/main/java']
-]
-pipeline {
-  agent any
-  options {
-    timestamps()
-    buildDiscarder(logRotator(numToKeepStr: '30'))
-  }
-  tools {
-    // Must match the name under Manage Jenkins -> Tools -> Maven installations.
-    // Jenkins puts this on the PATH for the whole pipeline, so ci/analyze.sh
-    // can just call 'mvn' with no hardcoded path.
-    maven 'Maven_3.9.14'
-    jdk 'JAVA_21'
-  }
-  environment {
-    // Free key from https://nvd.nist.gov/developers/request-an-api-key
-    // Without it, dependency-check's NVD feed sync gets rate-limited hard
-    // and the stage below can take 20-30+ min on a cold cache.
-    NVD_API_KEY = credentials('nvd-api-key')
-  }
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
-        discoverGitReferenceBuild(referenceJob: env.JOB_NAME)
-      }
-    }
-    stage('Analyze') {
-      steps {
-        sh 'bash ci/analyze.sh'
-      }
-    }
-    stage('SBOM') {
-      steps {
-        sh '''
-          mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \
-          -pl '!:holodeckb2b-distribution' \
-          -DoutputFormat=json \
-          -DoutputName=bom
-        '''
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: 'target/bom.json', allowEmptyArchive: true
-        }
-      }
-    }
-    stage('Dependency-Check') {
-      steps {
-        // 'aggregate' rather than 'check' since this is a multi-module reactor -
-        // produces one merged report at target/dependency-check-report.xml
-        // instead of one per module.
-        //
-        // catchError lets a CVSS-7+ finding mark this stage FAILED and the
-        // build UNSTABLE without aborting the pipeline, so the Trivy Scan
-        // stage below still runs instead of being skipped.
-        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          sh '''
-            mvn -B org.owasp:dependency-check-maven:aggregate \
-            -pl '!:holodeckb2b-distribution' \
-            -DnvdApiKey=$NVD_API_KEY \
-            -DfailBuildOnCVSS=7 \
-            -Dformats=JSON,HTML
-          '''
-        }
-      }
-    }
-    stage('Trivy Scan') {
-      steps {
-        // fs mode reads the reactor's resolved deps directly, no container needed.
-        // Matches the CVSS-7 threshold used above so the two gates agree.
-        //
-        // catchError here too, for the same reason: a HIGH/CRITICAL finding
-        // marks this stage FAILED and the build UNSTABLE, but still lets the
-        // post block (junit, recordIssues, recordCoverage) run to completion.
-        //
-        // Scans once to JSON (the authoritative, machine-readable report),
-        // then converts that same result to a plain-text table - no second
-        // scan, so it doesn't cost extra time. set +e/-e around the scan is
-        // needed because a plain multi-line sh script only reports the exit
-        // code of its LAST command; without capturing scan_exit explicitly,
-        // a nonzero exit from trivy fs would get silently overwritten by
-        // trivy convert's exit 0, and catchError would never see the failure.
-        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-          sh '''
-            set +e
-            trivy fs \
-                --severity HIGH,CRITICAL \
-                --exit-code 1 \
-                --format json \
-                --output trivy-report.json \
-                --scanners vuln \
-                .
-            scan_exit=$?
-            set -e
+#!/usr/bin/env bash
+#
+# ci/analyze.sh
+#
+# Runs all static analysis tools and writes their XML reports into target/.
+# Called from a single Jenkins "Execute shell" build step:
+#
+#     bash ci/analyze.sh
+#
+# Developers can run the exact same command locally to reproduce CI results.
+#
+# This script deliberately does NOT fail on violations. Pass/fail is decided
+# by the Jenkins post-build recorders (Warnings NG / Coverage), which can
+# compare against a reference build. If this script failed on violations,
+# later analyzers would never run and Jenkins would get no reports at all.
+#
+set -euo pipefail
 
-            trivy convert \
-                --format table \
-                --output trivy-report.txt \
-                trivy-report.json
+# ---------------------------------------------------------------------------
+# Pinned analyzer versions. Bump these deliberately; never let them float.
+# ---------------------------------------------------------------------------
+CHECKSTYLE_GAV="org.apache.maven.plugins:maven-checkstyle-plugin:3.6.0"
+PMD_GAV="org.apache.maven.plugins:maven-pmd-plugin:3.26.0"
+SPOTBUGS_GAV="com.github.spotbugs:spotbugs-maven-plugin:4.10.3.0"
+JACOCO_GAV="org.jacoco:jacoco-maven-plugin:0.8.15"
 
-            exit $scan_exit
-          '''
-        }
-        archiveArtifacts artifacts: 'trivy-report.json,trivy-report.txt', allowEmptyArchive: true
-      }
-    }
-  }
-  post {
-    always {
-      junit testResults: '**/target/surefire-reports/*.xml',
-            allowEmptyResults: true
-      recordIssues(
-        enabledForFailure: true,
-        sourceCodeEncoding: 'UTF-8',
-        sourceDirectories: sourceDirs,
-        tools: [
-          java(),
-          checkStyle(pattern: '**/target/checkstyle-result.xml'),
-          pmdParser(pattern: '**/target/pmd.xml'),
-          spotBugs(pattern: '**/target/spotbugsXml.xml'),
-          owaspDependencyCheck(pattern: '**/target/dependency-check-report.json')
-        ],
-        qualityGates: [
-            // Ratchet ceiling on the existing backlog (applied per tool).
-            // Set to the current worst-tool total + ~10% headroom; lower it over time.
-            [threshold: 7000, type: 'TOTAL', criticality: 'UNSTABLE'],
-          
-            // Regression gates: nothing NEW may be introduced.
-            [threshold: 1, type: 'NEW_HIGH',   criticality: 'FAILURE'],
-            [threshold: 1, type: 'NEW_NORMAL', criticality: 'UNSTABLE']
-          ]
-      )
-      archiveArtifacts artifacts: '**/target/dependency-check-report.html', allowEmptyArchive: true
-      recordCoverage(
-        tools: [[parser: 'JACOCO', pattern: '**/target/site/jacoco/jacoco.xml']],
-        sourceCodeEncoding: 'UTF-8',
-        sourceDirectories: sourceDirs
-      )
-    }
-  }
-}
+# The Checkstyle engine bundled inside maven-checkstyle-plugin lags the
+# upstream releases. Pin it so the rules match what conventions/checkstyle.xml expects.
+CHECKSTYLE_ENGINE_VERSION="13.5.0"
+
+MVN="mvn -B -ntp"
+
+# Absolute paths, so the -D paths below work no matter which directory Maven
+# decides to run a module from.
+#   ci/          - analyzer configs (PMD, SpotBugs)
+#   conventions/ - Java Coding Guidelines enforcement (Checkstyle, OpenRewrite)
+CI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "${CI_DIR}")"
+CONV_DIR="${REPO_DIR}/conventions"
+
+# ---------------------------------------------------------------------------
+# Fail fast with a clear message if a config file is missing.
+# ---------------------------------------------------------------------------
+for f in "${CI_DIR}/pmd-ruleset.xml" \
+         "${CI_DIR}/spotbugs-exclude.xml" \
+         "${CONV_DIR}/checkstyle.xml"; do
+  if [[ ! -f "${f}" ]]; then
+    echo "ERROR: missing ${f}" >&2
+    echo "       ci/ and conventions/ config files must be committed together." >&2
+    exit 1
+  fi
+done
+
+echo "=========================================================="
+echo " 1/4  Compile + tests + JaCoCo coverage"
+echo "=========================================================="
+# One Maven invocation instead of the previous 'clean compile' followed by
+# 'install': the second pass recompiled everything the first pass had just
+# built. Merging saves a full JVM startup and a full compile.
+#
+# 'install' (not 'test') is required: the standalone analyzer goals below run
+# outside the reactor and resolve sibling modules from ~/.m2, so the module
+# jars have to be installed there first.
+#
+# prepare-agent sets the 'argLine' property, which Surefire picks up on its
+# own. No pom change needed -- UNLESS the pom hard-codes argLine itself, in
+# which case coverage silently comes out empty. Check that first if
+# jacoco.xml shows zero coverage.
+#
+# -Xlint:all cannot be passed via -D (compilerArgs has no user property),
+# but the two flags below do have user properties and give most of the value.
+$MVN clean \
+  "${JACOCO_GAV}:prepare-agent" \
+  install \
+  "${JACOCO_GAV}:report" \
+  -Dmaven.compiler.showWarnings=true \
+  -Dmaven.compiler.showDeprecation=true \
+  -Dmaven.test.failure.ignore=true \
+  -pl '!modules/holodeckb2b-distribution'
+
+echo "=========================================================="
+echo " 2/4  Checkstyle  -> target/checkstyle-result.xml"
+echo "=========================================================="
+$MVN "${CHECKSTYLE_GAV}:checkstyle" \
+  -Dcheckstyle.config.location="${CONV_DIR}/checkstyle.xml" \
+  -Dcheckstyle.version="${CHECKSTYLE_ENGINE_VERSION}" \
+  -Dcheckstyle.failOnViolation=false \
+  -pl '!modules/holodeckb2b-distribution'
+
+echo "=========================================================="
+echo " 3/4  PMD + CPD  -> target/pmd.xml, target/cpd.xml"
+echo "=========================================================="
+$MVN "${PMD_GAV}:pmd" "${PMD_GAV}:cpd" \
+  -Drulesets="${CI_DIR}/pmd-ruleset.xml" \
+  -Dformat=xml \
+  -Dpmd.failOnViolation=false \
+  -Dcpd.minimumTokens=100 \
+  -pl '!modules/holodeckb2b-distribution'
+
+echo "=========================================================="
+echo " 4/4  SpotBugs  -> target/spotbugsXml.xml"
+echo "=========================================================="
+$MVN "${SPOTBUGS_GAV}:spotbugs" \
+  -Dspotbugs.effort=Max \
+  -Dspotbugs.threshold=Medium \
+  -Dspotbugs.excludeFilterFile="${CI_DIR}/spotbugs-exclude.xml" \
+  -Dspotbugs.failOnError=false \
+  -pl '!modules/holodeckb2b-distribution'
+
+echo "=========================================================="
+echo " Done. Reports written:"
+echo "=========================================================="
+# In a multi-module build there will be one set per module; Warnings NG
+# picks them all up via its **/target/... patterns.
+find . -name 'checkstyle-result.xml' \
+    -o -name 'pmd.xml' \
+    -o -name 'cpd.xml' \
+    -o -name 'spotbugsXml.xml' \
+    -o -name 'jacoco.xml' \
+  | sort
